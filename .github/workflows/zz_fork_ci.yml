@@ -1,0 +1,58 @@
+name: fork-ci-1416
+on:
+  push:
+    branches: [ci/1416b]
+jobs:
+  test:
+    name: PHP ${{ matrix.php }} WP ${{ matrix.wp }} MU ${{ matrix.multisite }}
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { php: '7.2', wp: '6.9', multisite: '0' }
+          - { php: '8.6', wp: 'latest', multisite: '0' }
+          - { php: '8.6', wp: 'latest', multisite: '1' }
+    services:
+      database:
+        image: mysql:8.1
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer
+          extensions: mysql
+          coverage: none
+      - run: composer install --prefer-dist
+      - run: sudo apt-get update && sudo apt-get install -y subversion
+      - name: Init DB and WP
+        run: |
+          if [ "$(php -r 'echo version_compare(PHP_VERSION, "7.4", "<");')" -eq 1 ]; then
+            mysql -uroot -proot -h127.0.0.1 -e "ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'root'; FLUSH PRIVILEGES;"
+          fi
+          ./tests/bin/install.sh woo_test root root 127.0.0.1 ${{ matrix.wp }}
+      - name: Runner tests
+        run: WP_MULTISITE=${{ matrix.multisite }} ./vendor/bin/phpunit -c ./tests/phpunit.xml.dist --filter ActionScheduler_QueueRunner_Test 2>&1 | tee runner.log
+      - name: Full suite
+        run: WP_MULTISITE=${{ matrix.multisite }} ./vendor/bin/phpunit -c ./tests/phpunit.xml.dist 2>&1 | tail -15
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+          coverage: none
+      - run: composer install --prefer-dist
+      - name: phpcs on the changed lines (as composer run lint-branch)
+        run: ./vendor/bin/phpcs-changed -s --git --git-base 058ed59 classes/abstracts/ActionScheduler_Abstract_QueueRunner.php tests/phpunit/runner/ActionScheduler_QueueRunner_Test.php
