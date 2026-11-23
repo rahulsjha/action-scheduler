@@ -38,10 +38,17 @@ jobs:
             mysql -uroot -proot -h127.0.0.1 -e "ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'root'; FLUSH PRIVILEGES;"
           fi
           ./tests/bin/install.sh woo_test root root 127.0.0.1 ${{ matrix.wp }}
-      - name: Runner tests
-        run: WP_MULTISITE=${{ matrix.multisite }} ./vendor/bin/phpunit -c ./tests/phpunit.xml.dist --filter ActionScheduler_QueueRunner_Test 2>&1 | tee runner.log
       - name: Full suite
-        run: WP_MULTISITE=${{ matrix.multisite }} ./vendor/bin/phpunit -c ./tests/phpunit.xml.dist 2>&1 | tail -15
+        run: set -o pipefail; WP_MULTISITE=${{ matrix.multisite }} ./vendor/bin/phpunit -c ./tests/phpunit.xml.dist 2>&1 | tail -25
+      - name: Runner tests only (branch)
+        if: always()
+        run: WP_MULTISITE=${{ matrix.multisite }} ./vendor/bin/phpunit -c ./tests/phpunit.xml.dist --filter ActionScheduler_QueueRunner_Test 2>&1 | grep -E "^[0-9]+\) |^OK|^Tests:|FAILURES" || true
+      - name: Runner tests only (trunk 058ed59, for comparison)
+        if: always()
+        run: |
+          git fetch -q --depth 20 origin
+          git checkout 058ed59 -- classes tests
+          WP_MULTISITE=${{ matrix.multisite }} ./vendor/bin/phpunit -c ./tests/phpunit.xml.dist --filter ActionScheduler_QueueRunner_Test 2>&1 | grep -E "^[0-9]+\) |^OK|^Tests:|FAILURES" || true
   lint:
     runs-on: ubuntu-latest
     steps:
